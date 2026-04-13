@@ -32,7 +32,9 @@ if st.button("Sync New Responses"):
     result = sync_new_responses()
     st.cache_data.clear()
     st.success(
-        f"Added {result['new_submissions']} new submissions and {result['new_rows']} new session rows."
+        f"Added {result['new_submissions']} new submissions, "
+        f"{result['new_rows']} new session rows, and "
+        f"saved {result['saved_csvs']} processed CSV files."
     )
 
 submissions_df = load_submissions()
