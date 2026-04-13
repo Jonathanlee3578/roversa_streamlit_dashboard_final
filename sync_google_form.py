@@ -1,5 +1,8 @@
 import io
+import os
 import re
+from pathlib import Path
+
 import pandas as pd
 import requests
 import gspread
@@ -35,6 +38,9 @@ COL_MAP = {
     "file_upload": "Upload Session CSV file",
 }
 
+PROCESSED_CSV_DIR = Path("processed_csvs")
+PROCESSED_CSV_DIR.mkdir(exist_ok=True)
+
 
 def get_credentials():
     creds = Credentials.from_service_account_info(
@@ -65,6 +71,12 @@ def make_submission_key(row):
         f"{row.get(COL_MAP['student_id'], '')}|"
         f"{row.get(COL_MAP['session_date'], '')}"
     )
+
+
+def clean_filename(text):
+    text = str(text).strip()
+    text = re.sub(r"[^\w\-]+", "_", text)
+    return text
 
 
 def parse_google_file_id(file_url):
@@ -103,12 +115,19 @@ def download_drive_csv(file_id, access_token):
         return pd.read_csv(raw_bytes, encoding="latin1")
 
 
+def build_processed_csv_name(student_id, session_date, submission_key):
+    student_id_clean = clean_filename(student_id)
+    session_date_clean = clean_filename(session_date)
+    key_suffix = clean_filename(submission_key)[-20:]
+    return f"{student_id_clean}_{session_date_clean}_{key_suffix}.csv"
+
+
 def sync_new_responses():
     init_db()
 
     responses_df = load_form_responses()
     if responses_df.empty:
-        return {"new_submissions": 0, "new_rows": 0}
+        return {"new_submissions": 0, "new_rows": 0, "saved_csvs": 0}
 
     existing_keys = get_existing_submission_keys()
     creds = get_credentials()
@@ -116,6 +135,7 @@ def sync_new_responses():
 
     new_submissions = 0
     new_rows = 0
+    saved_csvs = 0
 
     for _, row in responses_df.iterrows():
         submission_key = make_submission_key(row)
@@ -128,6 +148,32 @@ def sync_new_responses():
 
         if not file_id:
             continue
+
+        session_df = download_drive_csv(file_id, access_token)
+
+        # Add metadata columns directly to the dataframe
+        session_df["teacher_name"] = str(row.get(COL_MAP["teacher_name"], ""))
+        session_df["teacher_email"] = str(row.get(COL_MAP["teacher_email"], ""))
+        session_df["school"] = str(row.get(COL_MAP["school"], ""))
+        session_df["class_section"] = str(row.get(COL_MAP["class_section"], ""))
+        session_df["student_id"] = str(row.get(COL_MAP["student_id"], ""))
+        session_df["session_date"] = str(row.get(COL_MAP["session_date"], ""))
+        session_df["first_recorded_session"] = str(row.get(COL_MAP["first_session"], ""))
+        session_df["grade_level"] = str(row.get(COL_MAP["grade_level"], ""))
+        session_df["age"] = str(row.get(COL_MAP["age"], ""))
+        session_df["gender"] = str(row.get(COL_MAP["gender"], ""))
+        session_df["form_timestamp"] = str(row.get(COL_MAP["timestamp"], ""))
+        session_df["original_file_link"] = str(file_url)
+        session_df["submission_key"] = submission_key
+
+        processed_filename = build_processed_csv_name(
+            student_id=row.get(COL_MAP["student_id"], ""),
+            session_date=row.get(COL_MAP["session_date"], ""),
+            submission_key=submission_key,
+        )
+        processed_csv_path = PROCESSED_CSV_DIR / processed_filename
+
+        session_df.to_csv(processed_csv_path, index=False)
 
         metadata = {
             "submission_key": submission_key,
@@ -143,14 +189,18 @@ def sync_new_responses():
             "age": str(row.get(COL_MAP["age"], "")),
             "gender": str(row.get(COL_MAP["gender"], "")),
             "original_file_link": str(file_url),
+            "processed_csv_path": str(processed_csv_path),
         }
-
-        session_df = download_drive_csv(file_id, access_token)
 
         insert_submission(metadata)
         insert_session_rows(session_df, metadata)
 
         new_submissions += 1
         new_rows += len(session_df)
+        saved_csvs += 1
 
-    return {"new_submissions": new_submissions, "new_rows": new_rows}
+    return {
+        "new_submissions": new_submissions,
+        "new_rows": new_rows,
+        "saved_csvs": saved_csvs,
+    }
