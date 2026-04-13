@@ -26,7 +26,8 @@ def init_db():
             grade_level TEXT,
             age TEXT,
             gender TEXT,
-            original_file_link TEXT
+            original_file_link TEXT,
+            processed_csv_path TEXT
         )
     """)
 
@@ -72,8 +73,9 @@ def insert_submission(metadata: dict):
         INSERT OR IGNORE INTO submissions (
             submission_key, form_timestamp, teacher_name, teacher_email,
             school, class_section, session_date, student_id,
-            first_recorded_session, grade_level, age, gender, original_file_link
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            first_recorded_session, grade_level, age, gender,
+            original_file_link, processed_csv_path
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         metadata["submission_key"],
         metadata["form_timestamp"],
@@ -88,6 +90,7 @@ def insert_submission(metadata: dict):
         metadata["age"],
         metadata["gender"],
         metadata["original_file_link"],
+        metadata["processed_csv_path"],
     ))
 
     conn.commit()
