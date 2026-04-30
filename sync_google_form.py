@@ -35,6 +35,24 @@ PROCESSED_CSV_DIR = Path("processed_csvs")
 PROCESSED_CSV_DIR.mkdir(exist_ok=True)
 
 
+def normalize_col_name(name: str) -> str:
+    """Normalize sheet column names for flexible matching across export variants."""
+    return str(name).strip().rstrip(":").lower()
+
+
+def get_row_value(row: pd.Series, expected_col: str, default=""):
+    """Read row value using normalized column names (e.g., Teacher name == Teacher Name:)."""
+    if expected_col in row.index:
+        return row.get(expected_col, default)
+
+    expected_norm = normalize_col_name(expected_col)
+    for actual_col in row.index:
+        if normalize_col_name(actual_col) == expected_norm:
+            return row.get(actual_col, default)
+
+    return default
+
+
 def get_credentials():
     """Authenticate using Streamlit secrets.
 
@@ -65,11 +83,11 @@ def load_form_responses():
 def make_submission_key(row):
     """Build a deterministic key to prevent duplicate processing across sync runs."""
     return (
-        f"{row.get(COL_MAP['timestamp'], '')}|"
-        f"{row.get(COL_MAP['teacher_email'], '')}|"
-        f"{row.get(COL_MAP['student_id'], '')}|"
-        f"{row.get(COL_MAP['session_date'], '')}|"
-        f"{row.get(COL_MAP['file_upload'], '')}"
+        f"{get_row_value(row, COL_MAP['timestamp'], '')}|"
+        f"{get_row_value(row, COL_MAP['teacher_email'], '')}|"
+        f"{get_row_value(row, COL_MAP['student_id'], '')}|"
+        f"{get_row_value(row, COL_MAP['session_date'], '')}|"
+        f"{get_row_value(row, COL_MAP['file_upload'], '')}"
     )
 
 
@@ -131,49 +149,49 @@ def sync_new_responses():
         if submission_key in existing_keys:
             continue
 
-        file_url = row.get(COL_MAP["file_upload"], "")
+        file_url = get_row_value(row, COL_MAP["file_upload"], "")
         file_id = parse_google_file_id(file_url)
         if not file_id:
             continue
 
         session_df = download_drive_csv(file_id, access_token)
 
-        # CSV enrichment: every original row gains form metadata.
+        # Flexible column matching avoids breaks when Google Form headers vary by capitalization/colon.
         session_df = session_df.copy()
-        session_df["teacher_name"] = str(row.get(COL_MAP["teacher_name"], ""))
-        session_df["teacher_email"] = str(row.get(COL_MAP["teacher_email"], ""))
-        session_df["school"] = str(row.get(COL_MAP["school"], ""))
-        session_df["class_section"] = str(row.get(COL_MAP["class_section"], ""))
-        session_df["student_id"] = str(row.get(COL_MAP["student_id"], ""))
-        session_df["session_date"] = str(row.get(COL_MAP["session_date"], ""))
-        session_df["first_recorded_session"] = str(row.get(COL_MAP["first_session"], ""))
-        session_df["grade_level"] = str(row.get(COL_MAP["grade_level"], ""))
-        session_df["age"] = str(row.get(COL_MAP["age"], ""))
-        session_df["gender"] = str(row.get(COL_MAP["gender"], ""))
-        session_df["form_timestamp"] = str(row.get(COL_MAP["timestamp"], ""))
+        session_df["teacher_name"] = str(get_row_value(row, COL_MAP["teacher_name"], ""))
+        session_df["teacher_email"] = str(get_row_value(row, COL_MAP["teacher_email"], ""))
+        session_df["school"] = str(get_row_value(row, COL_MAP["school"], ""))
+        session_df["class_section"] = str(get_row_value(row, COL_MAP["class_section"], ""))
+        session_df["student_id"] = str(get_row_value(row, COL_MAP["student_id"], ""))
+        session_df["session_date"] = str(get_row_value(row, COL_MAP["session_date"], ""))
+        session_df["first_recorded_session"] = str(get_row_value(row, COL_MAP["first_session"], ""))
+        session_df["grade_level"] = str(get_row_value(row, COL_MAP["grade_level"], ""))
+        session_df["age"] = str(get_row_value(row, COL_MAP["age"], ""))
+        session_df["gender"] = str(get_row_value(row, COL_MAP["gender"], ""))
+        session_df["form_timestamp"] = str(get_row_value(row, COL_MAP["timestamp"], ""))
         session_df["original_file_link"] = str(file_url)
         session_df["submission_key"] = submission_key
 
         processed_csv_path = PROCESSED_CSV_DIR / build_processed_csv_name(
-            student_id=row.get(COL_MAP["student_id"], ""),
-            session_date=row.get(COL_MAP["session_date"], ""),
+            student_id=get_row_value(row, COL_MAP["student_id"], ""),
+            session_date=get_row_value(row, COL_MAP["session_date"], ""),
             submission_key=submission_key,
         )
         session_df.to_csv(processed_csv_path, index=False)
 
         metadata = {
             "submission_key": submission_key,
-            "form_timestamp": str(row.get(COL_MAP["timestamp"], "")),
-            "teacher_name": str(row.get(COL_MAP["teacher_name"], "")),
-            "teacher_email": str(row.get(COL_MAP["teacher_email"], "")),
-            "school": str(row.get(COL_MAP["school"], "")),
-            "class_section": str(row.get(COL_MAP["class_section"], "")),
-            "session_date": str(row.get(COL_MAP["session_date"], "")),
-            "student_id": str(row.get(COL_MAP["student_id"], "")),
-            "first_recorded_session": str(row.get(COL_MAP["first_session"], "")),
-            "grade_level": str(row.get(COL_MAP["grade_level"], "")),
-            "age": str(row.get(COL_MAP["age"], "")),
-            "gender": str(row.get(COL_MAP["gender"], "")),
+            "form_timestamp": str(get_row_value(row, COL_MAP["timestamp"], "")),
+            "teacher_name": str(get_row_value(row, COL_MAP["teacher_name"], "")),
+            "teacher_email": str(get_row_value(row, COL_MAP["teacher_email"], "")),
+            "school": str(get_row_value(row, COL_MAP["school"], "")),
+            "class_section": str(get_row_value(row, COL_MAP["class_section"], "")),
+            "session_date": str(get_row_value(row, COL_MAP["session_date"], "")),
+            "student_id": str(get_row_value(row, COL_MAP["student_id"], "")),
+            "first_recorded_session": str(get_row_value(row, COL_MAP["first_session"], "")),
+            "grade_level": str(get_row_value(row, COL_MAP["grade_level"], "")),
+            "age": str(get_row_value(row, COL_MAP["age"], "")),
+            "gender": str(get_row_value(row, COL_MAP["gender"], "")),
             "original_file_link": str(file_url),
             "processed_csv_path": str(processed_csv_path),
         }
