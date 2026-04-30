@@ -1,22 +1,15 @@
 import io
-import os
 import re
 from pathlib import Path
 
+import gspread
 import pandas as pd
 import requests
-import gspread
 import streamlit as st
-
-from google.oauth2.service_account import Credentials
 from google.auth.transport.requests import Request
+from google.oauth2.service_account import Credentials
 
-from db_utils import (
-    init_db,
-    get_existing_submission_keys,
-    insert_submission,
-    insert_session_rows,
-)
+from db_utils import get_existing_submission_keys, init_db, insert_session_rows, insert_submission
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets.readonly",
@@ -43,6 +36,11 @@ PROCESSED_CSV_DIR.mkdir(exist_ok=True)
 
 
 def get_credentials():
+    """Authenticate using Streamlit secrets.
+
+    Expects:
+      st.secrets["gcp_service_account"] = full service account JSON dictionary
+    """
     creds = Credentials.from_service_account_info(
         st.secrets["gcp_service_account"],
         scopes=SCOPES,
@@ -52,31 +50,32 @@ def get_credentials():
 
 
 def get_gspread_client():
-    creds = get_credentials()
-    return gspread.authorize(creds)
+    return gspread.authorize(get_credentials())
 
 
 def load_form_responses():
+    """Read Google Sheet responses configured in .streamlit/secrets.toml."""
     gc = get_gspread_client()
     sheet_name = st.secrets["google_form"]["sheet_name"]
     spreadsheet = gc.open(sheet_name)
-    worksheet = spreadsheet.sheet1
-    records = worksheet.get_all_records()
+    records = spreadsheet.sheet1.get_all_records()
     return pd.DataFrame(records)
 
 
 def make_submission_key(row):
+    """Build a deterministic key to prevent duplicate processing across sync runs."""
     return (
         f"{row.get(COL_MAP['timestamp'], '')}|"
+        f"{row.get(COL_MAP['teacher_email'], '')}|"
         f"{row.get(COL_MAP['student_id'], '')}|"
-        f"{row.get(COL_MAP['session_date'], '')}"
+        f"{row.get(COL_MAP['session_date'], '')}|"
+        f"{row.get(COL_MAP['file_upload'], '')}"
     )
 
 
 def clean_filename(text):
     text = str(text).strip()
-    text = re.sub(r"[^\w\-]+", "_", text)
-    return text
+    return re.sub(r"[^\w\-]+", "_", text)
 
 
 def parse_google_file_id(file_url):
@@ -84,22 +83,17 @@ def parse_google_file_id(file_url):
         return None
 
     first_part = str(file_url).split(",")[0].strip()
-
-    patterns = [
-        r"id=([a-zA-Z0-9_-]+)",
-        r"/d/([a-zA-Z0-9_-]+)",
-        r"/file/d/([a-zA-Z0-9_-]+)",
-    ]
+    patterns = [r"id=([a-zA-Z0-9_-]+)", r"/d/([a-zA-Z0-9_-]+)", r"/file/d/([a-zA-Z0-9_-]+)"]
 
     for pattern in patterns:
         match = re.search(pattern, first_part)
         if match:
             return match.group(1)
-
     return None
 
 
 def download_drive_csv(file_id, access_token):
+    """Download CSV from Drive and support encoding fallback for non-UTF8 files."""
     url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
     headers = {"Authorization": f"Bearer {access_token}"}
 
@@ -107,7 +101,6 @@ def download_drive_csv(file_id, access_token):
     response.raise_for_status()
 
     raw_bytes = io.BytesIO(response.content)
-
     try:
         return pd.read_csv(raw_bytes)
     except Exception:
@@ -116,22 +109,18 @@ def download_drive_csv(file_id, access_token):
 
 
 def build_processed_csv_name(student_id, session_date, submission_key):
-    student_id_clean = clean_filename(student_id)
-    session_date_clean = clean_filename(session_date)
-    key_suffix = clean_filename(submission_key)[-20:]
-    return f"{student_id_clean}_{session_date_clean}_{key_suffix}.csv"
+    return f"{clean_filename(student_id)}_{clean_filename(session_date)}_{clean_filename(submission_key)[-20:]}.csv"
 
 
 def sync_new_responses():
     init_db()
-
     responses_df = load_form_responses()
+
     if responses_df.empty:
         return {"new_submissions": 0, "new_rows": 0, "saved_csvs": 0}
 
     existing_keys = get_existing_submission_keys()
-    creds = get_credentials()
-    access_token = creds.token
+    access_token = get_credentials().token
 
     new_submissions = 0
     new_rows = 0
@@ -139,19 +128,18 @@ def sync_new_responses():
 
     for _, row in responses_df.iterrows():
         submission_key = make_submission_key(row)
-
         if submission_key in existing_keys:
             continue
 
         file_url = row.get(COL_MAP["file_upload"], "")
         file_id = parse_google_file_id(file_url)
-
         if not file_id:
             continue
 
         session_df = download_drive_csv(file_id, access_token)
 
-        # Add metadata columns directly to the dataframe
+        # CSV enrichment: every original row gains form metadata.
+        session_df = session_df.copy()
         session_df["teacher_name"] = str(row.get(COL_MAP["teacher_name"], ""))
         session_df["teacher_email"] = str(row.get(COL_MAP["teacher_email"], ""))
         session_df["school"] = str(row.get(COL_MAP["school"], ""))
@@ -166,13 +154,11 @@ def sync_new_responses():
         session_df["original_file_link"] = str(file_url)
         session_df["submission_key"] = submission_key
 
-        processed_filename = build_processed_csv_name(
+        processed_csv_path = PROCESSED_CSV_DIR / build_processed_csv_name(
             student_id=row.get(COL_MAP["student_id"], ""),
             session_date=row.get(COL_MAP["session_date"], ""),
             submission_key=submission_key,
         )
-        processed_csv_path = PROCESSED_CSV_DIR / processed_filename
-
         session_df.to_csv(processed_csv_path, index=False)
 
         metadata = {
@@ -192,15 +178,13 @@ def sync_new_responses():
             "processed_csv_path": str(processed_csv_path),
         }
 
+        # Duplicate prevention relies on submissions PK + session_rows unique key.
         insert_submission(metadata)
         insert_session_rows(session_df, metadata)
 
+        existing_keys.add(submission_key)
         new_submissions += 1
         new_rows += len(session_df)
         saved_csvs += 1
 
-    return {
-        "new_submissions": new_submissions,
-        "new_rows": new_rows,
-        "saved_csvs": saved_csvs,
-    }
+    return {"new_submissions": new_submissions, "new_rows": new_rows, "saved_csvs": saved_csvs}
