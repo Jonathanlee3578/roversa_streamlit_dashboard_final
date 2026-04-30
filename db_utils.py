@@ -1,18 +1,24 @@
+import json
 import sqlite3
+
 import pandas as pd
 
 DB_PATH = "roversa.db"
 
 
 def get_connection():
+    """Create a SQLite connection used by both app reads and sync writes."""
     return sqlite3.connect(DB_PATH, check_same_thread=False)
 
 
 def init_db():
+    """Initialize all tables and indexes required for idempotent syncs."""
     conn = get_connection()
     cur = conn.cursor()
 
-    cur.execute("""
+    # One row per form submission. submission_key is our dedupe guardrail.
+    cur.execute(
+        """
         CREATE TABLE IF NOT EXISTS submissions (
             submission_key TEXT PRIMARY KEY,
             form_timestamp TEXT,
@@ -29,9 +35,13 @@ def init_db():
             original_file_link TEXT,
             processed_csv_path TEXT
         )
-    """)
+    """
+    )
 
-    cur.execute("""
+    # One row per row in each uploaded CSV.
+    # row_json preserves original CSV columns while explicit columns store metadata.
+    cur.execute(
+        """
         CREATE TABLE IF NOT EXISTS session_rows (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             submission_key TEXT,
@@ -48,9 +58,15 @@ def init_db():
             gender TEXT,
             form_timestamp TEXT,
             original_file_link TEXT,
-            row_json TEXT
+            row_json TEXT,
+            UNIQUE(submission_key, source_row_number)
         )
-    """)
+    """
+    )
+
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_session_rows_submission_key ON session_rows(submission_key)"
+    )
 
     conn.commit()
     conn.close()
@@ -69,29 +85,32 @@ def insert_submission(metadata: dict):
     conn = get_connection()
     cur = conn.cursor()
 
-    cur.execute("""
+    cur.execute(
+        """
         INSERT OR IGNORE INTO submissions (
             submission_key, form_timestamp, teacher_name, teacher_email,
             school, class_section, session_date, student_id,
             first_recorded_session, grade_level, age, gender,
             original_file_link, processed_csv_path
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        metadata["submission_key"],
-        metadata["form_timestamp"],
-        metadata["teacher_name"],
-        metadata["teacher_email"],
-        metadata["school"],
-        metadata["class_section"],
-        metadata["session_date"],
-        metadata["student_id"],
-        metadata["first_recorded_session"],
-        metadata["grade_level"],
-        metadata["age"],
-        metadata["gender"],
-        metadata["original_file_link"],
-        metadata["processed_csv_path"],
-    ))
+    """,
+        (
+            metadata["submission_key"],
+            metadata["form_timestamp"],
+            metadata["teacher_name"],
+            metadata["teacher_email"],
+            metadata["school"],
+            metadata["class_section"],
+            metadata["session_date"],
+            metadata["student_id"],
+            metadata["first_recorded_session"],
+            metadata["grade_level"],
+            metadata["age"],
+            metadata["gender"],
+            metadata["original_file_link"],
+            metadata["processed_csv_path"],
+        ),
+    )
 
     conn.commit()
     conn.close()
@@ -102,30 +121,33 @@ def insert_session_rows(df: pd.DataFrame, metadata: dict):
     cur = conn.cursor()
 
     for idx, row in df.iterrows():
-        cur.execute("""
-            INSERT INTO session_rows (
+        cur.execute(
+            """
+            INSERT OR IGNORE INTO session_rows (
                 submission_key, source_row_number, teacher_name, teacher_email,
                 school, class_section, student_id, session_date,
                 first_recorded_session, grade_level, age, gender,
                 form_timestamp, original_file_link, row_json
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            metadata["submission_key"],
-            idx,
-            metadata["teacher_name"],
-            metadata["teacher_email"],
-            metadata["school"],
-            metadata["class_section"],
-            metadata["student_id"],
-            metadata["session_date"],
-            metadata["first_recorded_session"],
-            metadata["grade_level"],
-            metadata["age"],
-            metadata["gender"],
-            metadata["form_timestamp"],
-            metadata["original_file_link"],
-            row.to_json(),
-        ))
+        """,
+            (
+                metadata["submission_key"],
+                int(idx),
+                metadata["teacher_name"],
+                metadata["teacher_email"],
+                metadata["school"],
+                metadata["class_section"],
+                metadata["student_id"],
+                metadata["session_date"],
+                metadata["first_recorded_session"],
+                metadata["grade_level"],
+                metadata["age"],
+                metadata["gender"],
+                metadata["form_timestamp"],
+                metadata["original_file_link"],
+                json.dumps(row.to_dict(), ensure_ascii=False),
+            ),
+        )
 
     conn.commit()
     conn.close()
@@ -133,13 +155,13 @@ def insert_session_rows(df: pd.DataFrame, metadata: dict):
 
 def read_submissions():
     conn = get_connection()
-    df = pd.read_sql_query("SELECT * FROM submissions", conn)
+    df = pd.read_sql_query("SELECT * FROM submissions ORDER BY form_timestamp DESC", conn)
     conn.close()
     return df
 
 
 def read_session_rows():
     conn = get_connection()
-    df = pd.read_sql_query("SELECT * FROM session_rows", conn)
+    df = pd.read_sql_query("SELECT * FROM session_rows ORDER BY id DESC", conn)
     conn.close()
     return df
