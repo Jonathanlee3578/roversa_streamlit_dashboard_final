@@ -109,13 +109,34 @@ else:
 
 st.subheader("Program Length Across Sessions")
 st.caption("Program length is command sequence length, not a measure of student skill.")
-if not analytics_df.empty and {"run_type", "session_number", "program_length"}.issubset(analytics_df.columns):
-    program_trend = analytics_df[analytics_df["run_type"].isin(["Play", "Test"])]
+if not analytics_df.empty and {"run_type", "program_length"}.issubset(analytics_df.columns):
+    program_trend = analytics_df[analytics_df["run_type"].isin(["Play", "Test"])].copy()
     if not program_trend.empty:
-        program_trend = (
-            program_trend.groupby("session_number")["program_length"].max().reset_index().sort_values("session_number")
-        )
-        st.line_chart(program_trend.set_index("session_number")[["program_length"]])
+        if "session_number" in program_trend.columns:
+            program_trend["session_number"] = pd.to_numeric(program_trend["session_number"], errors="coerce")
+            program_trend = program_trend.dropna(subset=["session_number"])
+            program_trend["session_number"] = program_trend["session_number"].astype(int)
+        else:
+            program_trend["session_number"] = 1
+
+        if "submission_key" not in program_trend.columns:
+            program_trend["submission_key"] = "filtered_data"
+        program_trend["submission_key"] = program_trend["submission_key"].fillna("filtered_data").astype(str)
+
+        if not program_trend.empty:
+            program_trend = (
+                program_trend.groupby(["submission_key", "session_number"], dropna=False)["program_length"]
+                .max()
+                .reset_index()
+                .sort_values(["submission_key", "session_number"])
+            )
+            program_trend["submission_label"] = _short_submission_label(program_trend["submission_key"])
+            program_trend["display_label"] = (
+                program_trend["submission_label"] + " - Session " + program_trend["session_number"].astype(str)
+            )
+            st.line_chart(program_trend.set_index("display_label")[["program_length"]])
+        else:
+            st.info("No valid session numbers found for Play/Test runs.")
     else:
         st.info("No Play/Test runs found for current filters.")
 
