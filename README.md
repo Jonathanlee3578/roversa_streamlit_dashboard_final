@@ -1,38 +1,12 @@
-# Roversa Streamlit Dashboard
+## Local Testing Resources
 
-This dashboard syncs Google Form submissions, downloads each uploaded CSV from Google Drive, enriches every CSV row with form metadata, stores data in SQLite, and provides Streamlit filters for teacher, student, and class/section.
+This repo includes local testing files:
 
-## 1) Install
+- `testing/create_fake_data.py` creates a fake local SQLite database for testing dashboard visuals without Google authentication.
+- `testing/test_form_csv_load.py` checks whether an exported Google Form response CSV can be read successfully.
+- `test_data/form_responses_test.csv` is an anonymized sample form response export used for testing column names and data loading.
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-## 2) Configure secrets
-
-Create `.streamlit/secrets.toml` (do **not** commit it):
-
-```toml
-[gcp_service_account]
-type = "service_account"
-project_id = "..."
-private_key_id = "..."
-private_key = "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
-client_email = "..."
-client_id = "..."
-auth_uri = "https://accounts.google.com/o/oauth2/auth"
-token_uri = "https://oauth2.googleapis.com/token"
-auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
-client_x509_cert_url = "..."
-universe_domain = "googleapis.com"
-
-[google_form]
-sheet_name = "<exact Google Sheet name>"
-```
-
-Also share the response sheet and uploaded files with the service account email.
+Do not commit real student data, Google credentials, `roversa.db`, or files inside `processed_csvs/`.
 
 ## 3) Run app
 
