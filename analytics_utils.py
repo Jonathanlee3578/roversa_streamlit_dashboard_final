@@ -7,12 +7,25 @@ def _series_or_empty(df: pd.DataFrame, column: str, default="") -> pd.Series:
     return pd.Series([default] * len(df), index=df.index)
 
 
+def parse_program_commands(program) -> list[str]:
+    """Parse Program into a whitespace-split lowercase command list."""
+    if pd.isna(program):
+        return []
+
+    text = str(program).strip()
+    if text == "" or text.lower() == "empty":
+        return []
+
+    return text.lower().split()
+
+
 def add_robot_analytics_fields(df: pd.DataFrame) -> pd.DataFrame:
     """Return a copy of df with robust robot analytics columns added.
 
     Adds:
       - is_new_session
       - session_number
+      - program_commands
       - program_length
       - run_type
     """
@@ -21,6 +34,7 @@ def add_robot_analytics_fields(df: pd.DataFrame) -> pd.DataFrame:
         for col, default in [
             ("is_new_session", pd.Series(dtype="bool")),
             ("session_number", pd.Series(dtype="int64")),
+            ("program_commands", pd.Series(dtype="object")),
             ("program_length", pd.Series(dtype="int64")),
             ("run_type", pd.Series(dtype="object")),
         ]:
@@ -36,12 +50,9 @@ def add_robot_analytics_fields(df: pd.DataFrame) -> pd.DataFrame:
     else:
         out["session_number"] = out["is_new_session"].cumsum().clip(lower=1)
 
-    program_raw = _series_or_empty(out, "Program", default="").fillna("").astype(str).str.strip()
-    is_empty_program = program_raw.eq("") | program_raw.str.lower().eq("empty")
-    out["program_length"] = 0
-    out.loc[~is_empty_program, "program_length"] = (
-        program_raw[~is_empty_program].str.split().str.len().fillna(0).astype(int)
-    )
+    program_raw = _series_or_empty(out, "Program", default="")
+    out["program_commands"] = program_raw.apply(parse_program_commands)
+    out["program_length"] = out["program_commands"].apply(len)
 
     button_raw = _series_or_empty(out, "Button", default="").fillna("").astype(str).str.strip()
     out["run_type"] = "Other"

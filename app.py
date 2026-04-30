@@ -178,6 +178,23 @@ if not analytics_df.empty and "Time (seconds)" in analytics_df.columns:
 else:
     st.info("Time (seconds) column not found in the filtered data.")
 
+
+with st.expander("Debug: Program Parser Output", expanded=False):
+    debug_cols = [
+        "Program",
+        "program_commands",
+        "program_length",
+        "Button",
+        "run_type",
+        "session_number",
+        "submission_key",
+    ]
+    available_debug_cols = [c for c in debug_cols if c in analytics_df.columns]
+    if available_debug_cols:
+        st.dataframe(analytics_df[available_debug_cols], use_container_width=True, height=220)
+    else:
+        st.info("Debug columns are not available in the current filtered data.")
+
 st.subheader("Filtered Session Data")
 st.dataframe(analytics_df, use_container_width=True, height=420)
 
