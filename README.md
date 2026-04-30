@@ -1,6 +1,21 @@
 # Roversa Streamlit Dashboard
 
-This dashboard syncs Google Form submissions, downloads each uploaded CSV from Google Drive, enriches every CSV row with form metadata, stores data in SQLite, and provides Streamlit filters for teacher, student, and class/section.
+This dashboard syncs Google Form submissions, downloads each uploaded CSV from Google Drive, enriches every CSV row with form metadata, stores data in SQLite, and provides Streamlit filters and charts for teacher, student, class/section, and robot-session analytics.
+
+The goal is to move Roversa Robotics session data from scattered CSV uploads into a cleaner dashboard system where data can be filtered, inspected, and visualized.
+
+---
+
+## 1) Install
+
+Create and activate a virtual environment.
+
+### Mac/Linux
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 
 ## 1) Install
 
