@@ -50,32 +50,106 @@ if submissions_df.empty:
     st.stop()
 
 st.sidebar.header("Filters")
-teacher_options = sorted(submissions_df["teacher_name"].dropna().unique().tolist())
-student_options = sorted(submissions_df["student_id"].dropna().unique().tolist())
-class_options = sorted(submissions_df["class_section"].dropna().unique().tolist())
-selected_teachers = st.sidebar.multiselect("Teacher", teacher_options)
-selected_students = st.sidebar.multiselect("Student", student_options)
-selected_classes = st.sidebar.multiselect("Class/Section", class_options)
 
+if st.sidebar.button("Clear filters"):
+    for key in ["filter_teachers", "filter_classes", "filter_students", "filter_date_range"]:
+        if key in st.session_state:
+            del st.session_state[key]
+
+# Cascading option source is submissions_df, progressively narrowed.
+working_options_df = submissions_df.copy()
+
+teacher_options = (
+    sorted(working_options_df["teacher_name"].dropna().astype(str).unique().tolist())
+    if "teacher_name" in working_options_df.columns
+    else []
+)
+selected_teachers = st.sidebar.multiselect("Teacher", teacher_options, key="filter_teachers")
+if selected_teachers and "teacher_name" in working_options_df.columns:
+    working_options_df = working_options_df[working_options_df["teacher_name"].astype(str).isin(selected_teachers)]
+
+class_options = (
+    sorted(working_options_df["class_section"].dropna().astype(str).unique().tolist())
+    if "class_section" in working_options_df.columns
+    else []
+)
+selected_classes = st.sidebar.multiselect("Class/Section", class_options, key="filter_classes")
+if selected_classes and "class_section" in working_options_df.columns:
+    working_options_df = working_options_df[working_options_df["class_section"].astype(str).isin(selected_classes)]
+
+student_options = (
+    sorted(working_options_df["student_id"].dropna().astype(str).unique().tolist())
+    if "student_id" in working_options_df.columns
+    else []
+)
+selected_students = st.sidebar.multiselect("Student", student_options, key="filter_students")
+
+# Optional date-range filter, only if session_date can be parsed.
+selected_date_range = None
+session_dates = None
+if "session_date" in submissions_df.columns:
+    parsed_dates = pd.to_datetime(submissions_df["session_date"], errors="coerce")
+    if parsed_dates.notna().any():
+        min_date = parsed_dates.min().date()
+        max_date = parsed_dates.max().date()
+        selected_date_range = st.sidebar.date_input(
+            "Session Date Range",
+            value=(min_date, max_date),
+            min_value=min_date,
+            max_value=max_date,
+            key="filter_date_range",
+        )
+        session_dates = parsed_dates.dt.date
+
+# Apply final selected filters to both submissions and session rows.
 filtered_submissions = submissions_df.copy()
 filtered_sessions = session_df.copy()
 
 if selected_teachers:
-    filtered_submissions = filtered_submissions[filtered_submissions["teacher_name"].isin(selected_teachers)]
-    filtered_sessions = filtered_sessions[filtered_sessions["teacher_name"].isin(selected_teachers)]
-if selected_students:
-    filtered_submissions = filtered_submissions[filtered_submissions["student_id"].isin(selected_students)]
-    filtered_sessions = filtered_sessions[filtered_sessions["student_id"].isin(selected_students)]
+    if "teacher_name" in filtered_submissions.columns:
+        filtered_submissions = filtered_submissions[filtered_submissions["teacher_name"].astype(str).isin(selected_teachers)]
+    if "teacher_name" in filtered_sessions.columns:
+        filtered_sessions = filtered_sessions[filtered_sessions["teacher_name"].astype(str).isin(selected_teachers)]
+
 if selected_classes:
-    filtered_submissions = filtered_submissions[filtered_submissions["class_section"].isin(selected_classes)]
-    filtered_sessions = filtered_sessions[filtered_sessions["class_section"].isin(selected_classes)]
+    if "class_section" in filtered_submissions.columns:
+        filtered_submissions = filtered_submissions[filtered_submissions["class_section"].astype(str).isin(selected_classes)]
+    if "class_section" in filtered_sessions.columns:
+        filtered_sessions = filtered_sessions[filtered_sessions["class_section"].astype(str).isin(selected_classes)]
+
+if selected_students:
+    if "student_id" in filtered_submissions.columns:
+        filtered_submissions = filtered_submissions[filtered_submissions["student_id"].astype(str).isin(selected_students)]
+    if "student_id" in filtered_sessions.columns:
+        filtered_sessions = filtered_sessions[filtered_sessions["student_id"].astype(str).isin(selected_students)]
+
+if selected_date_range and session_dates is not None:
+    if isinstance(selected_date_range, tuple) and len(selected_date_range) == 2:
+        start_date, end_date = selected_date_range
+        if "session_date" in filtered_submissions.columns:
+            filtered_submissions_dates = pd.to_datetime(filtered_submissions["session_date"], errors="coerce").dt.date
+            filtered_submissions = filtered_submissions[
+                filtered_submissions_dates.between(start_date, end_date, inclusive="both")
+            ]
+        if "session_date" in filtered_sessions.columns:
+            filtered_sessions_dates = pd.to_datetime(filtered_sessions["session_date"], errors="coerce").dt.date
+            filtered_sessions = filtered_sessions[
+                filtered_sessions_dates.between(start_date, end_date, inclusive="both")
+            ]
+
+st.sidebar.markdown("---")
+st.sidebar.caption("Selection summary")
+st.sidebar.write(f"Teachers selected: {len(selected_teachers)}")
+st.sidebar.write(f"Classes selected: {len(selected_classes)}")
+st.sidebar.write(f"Students selected: {len(selected_students)}")
+st.sidebar.write(f"Filtered submissions: {len(filtered_submissions)}")
 
 # Analytics fields are derived on a copy to avoid mutating cached source data.
 analytics_df = add_robot_analytics_fields(filtered_sessions)
 
 c1, c2, c3 = st.columns(3)
-c1.metric("Teachers", filtered_submissions["teacher_name"].nunique())
-c2.metric("Students", filtered_submissions["student_id"].nunique())
+c1.metric("Teachers", filtered_submissions["teacher_name"].nunique() if "teacher_name" in filtered_submissions.columns else 0)
+c2.metric("Students", filtered_submissions["student_id"].nunique() if "student_id" in filtered_submissions.columns else 0)
 c3.metric("Submissions", len(filtered_submissions))
 
 st.subheader("Submissions by Teacher")
@@ -109,6 +183,7 @@ else:
 
 st.subheader("Program Length Across Sessions")
 st.caption("Program length is command sequence length, not a measure of student skill.")
+st.caption("Only sessions with Play or Test runs are shown. Sessions with no program run are excluded.")
 if not analytics_df.empty and {"run_type", "program_length"}.issubset(analytics_df.columns):
     program_trend = analytics_df[analytics_df["run_type"].isin(["Play", "Test"])].copy()
     if not program_trend.empty:
@@ -145,7 +220,7 @@ if not analytics_df.empty and "Button" in analytics_df.columns:
     button_series = analytics_df["Button"].fillna("").astype(str).str.strip()
     button_counts = button_series[button_series != ""].value_counts().rename_axis("Button").reset_index(name="count")
     if not button_counts.empty:
-        st.bar_chart(button_counts.set_index("Button")[["count"]])
+        st.bar_chart(button_counts.set_index("Button")[['count']])
     else:
         st.info("No button press data found for current filters.")
 
@@ -178,17 +253,8 @@ if not analytics_df.empty and "Time (seconds)" in analytics_df.columns:
 else:
     st.info("Time (seconds) column not found in the filtered data.")
 
-
 with st.expander("Debug: Program Parser Output", expanded=False):
-    debug_cols = [
-        "Program",
-        "program_commands",
-        "program_length",
-        "Button",
-        "run_type",
-        "session_number",
-        "submission_key",
-    ]
+    debug_cols = ["Program", "program_commands", "program_length", "Button", "run_type", "session_number", "submission_key"]
     available_debug_cols = [c for c in debug_cols if c in analytics_df.columns]
     if available_debug_cols:
         st.dataframe(analytics_df[available_debug_cols], use_container_width=True, height=220)
