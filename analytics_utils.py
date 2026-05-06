@@ -84,7 +84,29 @@ def build_sankey_data(filtered_sessions: pd.DataFrame):
     target_indices = [label_to_idx[t] for _, t in flows.keys()]
     values = list(flows.values())
 
-    return {"labels": labels, "source": source_indices, "target": target_indices, "value": values}
+    transitions = []
+    for (source_label, target_label), count in flows.items():
+        source_step, source_command = source_label.split(": ", 1)
+        target_step, target_command = target_label.split(": ", 1)
+        transitions.append(
+            {
+                "source_step": source_step,
+                "source_command": source_command,
+                "target_step": target_step,
+                "target_command": target_command,
+                "count": count,
+            }
+        )
+
+    return {
+        "labels": labels,
+        "source": source_indices,
+        "target": target_indices,
+        "value": values,
+        "transitions_df": pd.DataFrame(transitions).sort_values(
+            ["source_step", "source_command", "target_step", "target_command"]
+        ),
+    }
 
 
 def build_path_map_data(filtered_sessions: pd.DataFrame) -> pd.DataFrame:
@@ -111,15 +133,22 @@ def build_path_map_data(filtered_sessions: pd.DataFrame) -> pd.DataFrame:
         path_df = simulate_program_path(row["program_commands"])
         student_id = str(row.get("student_id", "unknown_student"))
         submission_key = str(row.get("submission_key", "unknown_submission"))
-        run_label = f"{student_id} | {submission_key[-8:]} | row{row_idx}"
+        session_number = int(row.get("session_number", 1))
+        source_row_number = int(row.get("source_row_number", row_idx))
+        program_value = str(row.get("Program", ""))
+        run_label = f"{student_id} | Session {session_number} | row {source_row_number} | {program_value}"
         for _, p in path_df.iterrows():
             records.append(
                 {
                     "run_label": run_label,
                     "student_id": student_id,
                     "submission_key": submission_key,
+                    "session_number": session_number,
+                    "source_row_number": source_row_number,
                     "session_date": row.get("session_date", ""),
                     "run_type": row.get("run_type", ""),
+                    "Program": program_value,
+                    "program_length": int(len(row["program_commands"])),
                     "step": int(p["step"]),
                     "command": p["command"],
                     "x": int(p["x"]),

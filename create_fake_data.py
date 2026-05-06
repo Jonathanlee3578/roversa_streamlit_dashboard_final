@@ -283,6 +283,7 @@ def main():
             {"Time (seconds)": 86, "Button": "Reverse"},
             {"Time (seconds)": 92, "Button": "Right"},
             {"Time (seconds)": 100, "Button": "Play", "Program": "reverse right"},
+            {"Time (seconds)": 114, "Button": "Test", "Program": "reverse right forward"},
         ]),
         "fake_submission_004": make_session([
             {"Time (seconds)": 0, "Session": "NEW", "Battery": 4.35},
@@ -302,6 +303,8 @@ def main():
             {"Time (seconds)": 185, "Button": "Play", "Program": "forward forward left forward forward left"},
             {"Time (seconds)": 210, "Button": "Test", "Program": "forward forward left forward forward left"},
             {"Time (seconds)": 230, "Session": "NEW", "Battery": 4.29},
+            {"Time (seconds)": 238, "Button": "Play", "Program": "forward right forward left"},
+            {"Time (seconds)": 248, "Button": "Test", "Program": "forward right forward right"},
         ]),
         "fake_submission_005": make_session([
             {"Time (seconds)": 0, "Session": "NEW", "Battery": 4.18},

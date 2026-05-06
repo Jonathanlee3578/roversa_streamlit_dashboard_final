@@ -87,6 +87,18 @@ Additional analytics shown in Streamlit:
 
 ## 7) New visual analytics details
 
+### Program Visualization Controls
+
+- A dedicated control section above Sankey and Eagle-Eye lets you choose exactly which runs are visualized.
+- Controls include:
+  - Run Type multiselect (`Play`, `Test`)
+  - Student multiselect (from currently filtered valid runs)
+  - Program Length range slider
+  - Program Run selector (`student_id | Session N | row R | Program`)
+  - Optional `Show only latest run per student`
+  - Optional `Include empty programs`
+- These controls are built from filtered session rows after analytics fields are added, so they respect sidebar teacher/class/student/date filters.
+
 ### Program Divergence Sankey
 
 - Uses the `Program` column as a whitespace-separated command list.
@@ -99,6 +111,8 @@ Additional analytics shown in Streamlit:
     - `S2: right -> S3: forward`
     - and final `S3: forward -> S4: END`
 - Honors all sidebar filters (teacher, class/section, student, date range).
+- Includes summary stats and source-data expander.
+- Supports CSV download of transition counts.
 
 ### Eagle-Eye Program Path Map
 
@@ -111,6 +125,10 @@ Additional analytics shown in Streamlit:
   - `right` = rotate 90° right
 - Plots one line per student/program run.
 - Shows final coordinates and allows selecting a coordinate to inspect matching students/runs.
+- Includes a playback slider:
+  - `Show full path` checked = complete path
+  - unchecked = show steps up to `Playback step`
+- Supports CSV downloads for selected runs and path points.
 - This is simulated command intent, **not** physical robot trajectory.
 
 ## 8) Testing with fake data for new visuals
@@ -138,3 +156,6 @@ streamlit run app.py
 - Unknown commands are currently ignored for movement but retained as steps.
 - Heading/axis convention can be adjusted in code if Roversa’s canonical orientation differs.
 - Sankey operates at command-token level; it does not infer intent beyond sequence transitions.
+- The path map is simulated intended behavior from `Program`, not measured real-world robot trajectory.
+- Turns are modeled as 90° rotations.
+- Forward/reverse are modeled as one grid unit.
