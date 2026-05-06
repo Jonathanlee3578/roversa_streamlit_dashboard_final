@@ -312,7 +312,8 @@ else:
 
     control_df["file_label"] = _short_submission_label(control_df["submission_key"].fillna("").astype(str))
     control_df["run_label"] = (
-        control_df["student_id"].astype(str) + " | File " + control_df["file_label"].astype(str) + " | Session " +
+        control_df["student_id"].astype(str) + " | Session " +
+        "File " + control_df["file_label"].astype(str) + " | Session " +
         control_df["session_number"].fillna(1).astype(int).astype(str) + " | row " +
         control_df["source_row_number"].fillna(-1).astype(int).astype(str) + " | " +
         control_df["run_type"].astype(str) + " | " + control_df["Program"].replace("", "Empty")
@@ -339,8 +340,7 @@ else:
         st.subheader("Program Divergence Sankey")
         st.caption("Shows common step-to-step command paths and where selected runs diverge. Includes END nodes.")
         sankey_data = build_sankey_data(selected_runs_df)
-        transitions_df = sankey_data.get("transitions_df", pd.DataFrame())
-        if not transitions_df.empty:
+        if sankey_data:
             total_runs = len(selected_runs_df)
             link_custom = [f"{v} runs ({(v / total_runs) * 100:.1f}%)" for v in sankey_data["value"]]
             sankey_fig = go.Figure(
@@ -371,18 +371,14 @@ else:
                         "run_type", "Time (seconds)", "Program", "program_commands", "program_length", "final_coordinate"]
                 st.dataframe(selected_runs_df[[c for c in cols if c in selected_runs_df.columns]], use_container_width=True)
             with st.expander("Debug: Sankey Transitions", expanded=False):
-                st.dataframe(transitions_df, use_container_width=True)
+                st.dataframe(sankey_data["transitions_df"], use_container_width=True)
         else:
             st.info("No valid selected programs available to build Sankey.")
-            with st.expander("Debug: Sankey Transitions", expanded=False):
-                st.dataframe(transitions_df, use_container_width=True)
 
         st.subheader("Eagle-Eye Program Path Map")
         st.caption("Simulated intended path (not measured trajectory). Start=(0,0), heading East; turns are 90°; movement is one grid unit.")
         if path_df.empty:
-            st.info("No valid program runs available for the Eagle-Eye map.")
-            with st.expander("Debug: Eagle-Eye Path Points", expanded=False):
-                st.dataframe(path_df, use_container_width=True)
+            st.info("No valid selected programs available to simulate paths.")
         else:
             max_step = int(path_df["step"].max())
             show_full_path = st.checkbox("Show full path", value=True)
@@ -448,10 +444,10 @@ else:
                 file_name="eagle_eye_path_points.csv",
                 mime="text/csv",
             )
-            if not transitions_df.empty:
+            if sankey_data:
                 st.download_button(
                     "Download Sankey transitions CSV",
-                    data=transitions_df.to_csv(index=False),
+                    data=sankey_data["transitions_df"].to_csv(index=False),
                     file_name="program_sankey_transitions.csv",
                     mime="text/csv",
                 )

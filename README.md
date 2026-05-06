@@ -94,7 +94,6 @@ Additional analytics shown in Streamlit:
   - A session starts when `Session == "NEW"`.
   - Each Play/Test row is one **Program Run**.
   - `Program` is the command sequence for that single Program Run.
-  - A single session can contain multiple Program Runs (multiple Play/Test rows).
 - A dedicated control section above Sankey and Eagle-Eye lets you choose exactly which runs are visualized.
 - Controls include:
   - Run Type multiselect (`Play`, `Test`)
@@ -155,7 +154,6 @@ streamlit run app.py
 
 3. Verify visuals:
    - Filter to `Ms. Smith` + `Period 1` to see shared prefixes and divergence from `forward`.
-   - In one session, verify multiple Play/Test rows appear as separate Program Runs in the run selector.
    - Check overlap in final coordinates using the coordinate selector under Eagle-Eye map.
    - Confirm friendly info messages appear when filters remove valid Play/Test programs.
 

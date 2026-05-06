@@ -53,18 +53,9 @@ def simulate_program_path(commands: list[str]) -> pd.DataFrame:
 
 
 def build_sankey_data(filtered_sessions: pd.DataFrame):
-    """Build node/link data for a Plotly Sankey from valid Play/Test program runs."""
-    empty_result = {
-        "labels": [],
-        "source": [],
-        "target": [],
-        "value": [],
-        "transitions_df": pd.DataFrame(columns=["source_step", "source_command", "target_step", "target_command", "count"]),
-        "source_runs_df": pd.DataFrame(),
-        "summary": {"selected_runs": 0, "unique_sequences": 0, "most_common_first_command": "N/A"},
-    }
+    """Build node/link data for a Plotly Sankey from valid Play/Test program rows."""
     if filtered_sessions.empty:
-        return empty_result
+        return None
 
     work = filtered_sessions.copy()
     run_type = _series_or_empty(work, "run_type", default="")
@@ -78,7 +69,7 @@ def build_sankey_data(filtered_sessions: pd.DataFrame):
     )
     valid = work[(work["run_type"].isin(["Play", "Test"])) & (work["program_commands"].apply(len) > 0)].copy()
     if valid.empty:
-        return empty_result
+        return None
 
     flows: dict[tuple[str, str], int] = {}
     for commands in valid["program_commands"]:
@@ -107,15 +98,6 @@ def build_sankey_data(filtered_sessions: pd.DataFrame):
             }
         )
 
-    summary = {
-        "selected_runs": int(len(valid)),
-        "unique_sequences": int(valid["program_commands"].apply(lambda c: " ".join(c)).nunique()),
-        "most_common_first_command": (
-            valid["program_commands"].apply(lambda c: c[0] if len(c) else "N/A").mode().iloc[0]
-            if not valid.empty
-            else "N/A"
-        ),
-    }
     return {
         "labels": labels,
         "source": source_indices,
@@ -124,8 +106,6 @@ def build_sankey_data(filtered_sessions: pd.DataFrame):
         "transitions_df": pd.DataFrame(transitions).sort_values(
             ["source_step", "source_command", "target_step", "target_command"]
         ),
-        "source_runs_df": valid.copy(),
-        "summary": summary,
     }
 
 
