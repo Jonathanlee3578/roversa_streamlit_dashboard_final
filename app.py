@@ -44,6 +44,22 @@ def ensure_columns(df: pd.DataFrame, defaults: dict) -> pd.DataFrame:
     return out
 
 
+def normalize_program_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize Program/program_length columns after joins that may add suffixes."""
+    out = df.copy()
+    if "Program" not in out.columns:
+        if "Program_x" in out.columns:
+            out["Program"] = out["Program_x"]
+        elif "Program_y" in out.columns:
+            out["Program"] = out["Program_y"]
+    if "program_length" not in out.columns:
+        if "program_length_x" in out.columns:
+            out["program_length"] = out["program_length_x"]
+        elif "program_length_y" in out.columns:
+            out["program_length"] = out["program_length_y"]
+    return out.drop(columns=[c for c in ["Program_x", "Program_y", "program_length_x", "program_length_y"] if c in out.columns])
+
+
 init_db()
 st.title("Roversa Robotics Dashboard")
 
@@ -385,12 +401,25 @@ else:
             playback_step = st.slider("Playback step", 0, max_step, max_step)
             path_display = path_df if show_full_path else path_df[path_df["step"] <= playback_step].copy()
             path_display["coord"] = "(" + path_display["x"].astype(str) + ", " + path_display["y"].astype(str) + ")"
-            path_display = path_display.merge(selected_runs_df[["run_label", "Program", "program_length"]], on="run_label", how="left")
+            metadata_cols = [c for c in ["run_label", "Program", "program_length"] if c in selected_runs_df.columns and (c == "run_label" or c not in path_display.columns)]
+            path_display = path_display.merge(selected_runs_df[metadata_cols], on="run_label", how="left")
+            path_display = normalize_program_columns(path_display)
+            hover_cols = [
+                "student_id",
+                "session_number",
+                "source_row_number",
+                "run_type",
+                "Program",
+                "program_length",
+                "command",
+                "coord",
+            ]
+            hover_cols = [c for c in hover_cols if c in path_display.columns]
 
             max_abs = int(max(path_display["x"].abs().max(), path_display["y"].abs().max(), 1))
             path_fig = px.line(path_display.sort_values(["run_label", "step"]), x="x", y="y", color="run_label",
                                line_group="run_label", markers=True,
-                               hover_data={"student_id": True, "run_label": True, "step": True, "command": True, "coord": True, "Program": True})
+                               hover_data=hover_cols)
             path_fig.update_xaxes(range=[-max_abs - 1, max_abs + 1], zeroline=True, showgrid=True, title="X")
             path_fig.update_yaxes(range=[-max_abs - 1, max_abs + 1], zeroline=True, showgrid=True, scaleanchor="x", scaleratio=1, title="Y")
             path_fig.add_annotation(x=max_abs * 0.7, y=max_abs * 0.7, text="Quadrant I", showarrow=False)
@@ -414,9 +443,16 @@ else:
 
             st.download_button(
                 "Download selected program runs CSV",
-                data=selected_runs_df[["teacher_name", "class_section", "student_id", "session_date", "submission_key",
-                                       "session_number", "source_row_number", "run_type", "Time (seconds)", "Program",
-                                       "program_commands_str", "program_length", "final_x", "final_y", "final_coordinate"]]
+                data=ensure_columns(
+                    normalize_program_columns(selected_runs_df),
+                    {
+                        "teacher_name": "", "class_section": "", "student_id": "", "session_date": "", "submission_key": "",
+                        "session_number": "", "source_row_number": "", "run_type": "", "Time (seconds)": "", "Program": "",
+                        "program_commands_str": "", "program_length": 0, "final_x": "", "final_y": "", "final_coordinate": "",
+                    },
+                )[["teacher_name", "class_section", "student_id", "session_date", "submission_key",
+                   "session_number", "source_row_number", "run_type", "Time (seconds)", "Program",
+                   "program_commands_str", "program_length", "final_x", "final_y", "final_coordinate"]]
                 .rename(columns={"program_commands_str": "program_commands"}).to_csv(index=False),
                 file_name="selected_program_runs.csv",
                 mime="text/csv",
@@ -426,7 +462,8 @@ else:
                         "session_number", "source_row_number", "run_type", "Time (seconds)", "Program", "program_commands",
                         "program_length", "final_x", "final_y", "final_coordinate"]
             path_export = path_export.drop(columns=[c for c in run_cols if c in path_export.columns and c != "run_label"])
-            path_export = path_export.merge(selected_runs_df[run_cols], on="run_label", how="left")
+            path_export = path_export.merge(selected_runs_df[[c for c in run_cols if c in selected_runs_df.columns]], on="run_label", how="left")
+            path_export = normalize_program_columns(path_export)
             path_export = ensure_columns(
                 path_export,
                 {
@@ -438,9 +475,17 @@ else:
             )
             st.download_button(
                 "Download eagle-eye path points CSV",
-                data=path_export[["run_label", "teacher_name", "class_section", "student_id", "session_date", "submission_key",
-                                  "session_number", "source_row_number", "run_type", "Time (seconds)", "Program", "program_commands",
-                                  "program_length", "step_number", "command", "x", "y", "final_x", "final_y", "final_coordinate"]].to_csv(index=False),
+                data=ensure_columns(
+                    path_export,
+                    {
+                        "run_label": "", "teacher_name": "", "class_section": "", "student_id": "", "session_date": "",
+                        "submission_key": "", "session_number": "", "source_row_number": "", "run_type": "",
+                        "Time (seconds)": "", "Program": "", "program_commands": "", "program_length": 0,
+                        "step_number": 0, "command": "", "x": 0, "y": 0, "final_x": "", "final_y": "", "final_coordinate": "",
+                    },
+                )[["run_label", "teacher_name", "class_section", "student_id", "session_date", "submission_key",
+                   "session_number", "source_row_number", "run_type", "Time (seconds)", "Program", "program_commands",
+                   "program_length", "step_number", "command", "x", "y", "final_x", "final_y", "final_coordinate"]].to_csv(index=False),
                 file_name="eagle_eye_path_points.csv",
                 mime="text/csv",
             )
