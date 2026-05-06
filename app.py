@@ -36,6 +36,14 @@ def _short_submission_label(series: pd.Series) -> pd.Series:
     return s.apply(lambda x: x if len(x) <= 28 else f"{x[:12]}...{x[-12:]}")
 
 
+def ensure_columns(df: pd.DataFrame, defaults: dict) -> pd.DataFrame:
+    out = df.copy()
+    for col, default in defaults.items():
+        if col not in out.columns:
+            out[col] = default
+    return out
+
+
 init_db()
 st.title("Roversa Robotics Dashboard")
 
@@ -232,6 +240,10 @@ if not analytics_df.empty and "Button" in analytics_df.columns:
 
 st.subheader("Program Visualization Controls")
 st.caption("Choose which Play/Test program runs are used by the Sankey and Eagle-Eye visuals.")
+st.caption(
+    "Each Program Run is one Play/Test row. One uploaded file can contain multiple sessions, "
+    "and each session can contain multiple program runs."
+)
 run_cols = [
     "Program", "program_commands", "program_length", "student_id", "teacher_name", "class_section",
     "submission_key", "session_number", "source_row_number", "Time (seconds)", "session_date", "run_type",
@@ -260,23 +272,51 @@ else:
     if selected_students_ctrl:
         control_df = control_df[control_df["student_id"].astype(str).isin(selected_students_ctrl)].copy()
 
+    submission_options = sorted(control_df["submission_key"].dropna().astype(str).unique().tolist())
+    selected_submissions = st.multiselect("Submission / Uploaded File", submission_options, default=submission_options)
+    if selected_submissions:
+        control_df = control_df[control_df["submission_key"].astype(str).isin(selected_submissions)].copy()
+
+    session_options = sorted(pd.to_numeric(control_df["session_number"], errors="coerce").dropna().astype(int).unique().tolist())
+    selected_sessions = st.multiselect("Session Number", session_options, default=session_options)
+    if selected_sessions:
+        control_df = control_df[pd.to_numeric(control_df["session_number"], errors="coerce").astype("Int64").isin(selected_sessions)].copy()
+
     if not control_df.empty and control_df["program_length"].notna().any():
         min_len = int(control_df["program_length"].min())
         max_len = int(control_df["program_length"].max())
         selected_len = st.slider("Program Length Range", min_len, max_len, (min_len, max_len))
         control_df = control_df[control_df["program_length"].between(selected_len[0], selected_len[1], inclusive="both")]
 
-    latest_only = st.checkbox("Show only latest run per student", value=False)
-    if latest_only and not control_df.empty:
+    comparison_mode = st.selectbox(
+        "Comparison Mode",
+        [
+            "All selected program runs",
+            "Latest run per student",
+            "Longest run per student",
+            "Latest run per student per session",
+        ],
+        index=1,
+    )
+    if not control_df.empty:
         control_df["time_num"] = pd.to_numeric(control_df["Time (seconds)"], errors="coerce")
         control_df["row_num"] = pd.to_numeric(control_df["source_row_number"], errors="coerce")
-        control_df = control_df.sort_values(["student_id", "time_num", "row_num"]).groupby("student_id", as_index=False).tail(1)
+        if comparison_mode == "Latest run per student":
+            control_df = control_df.sort_values(["student_id", "time_num", "row_num"]).groupby("student_id", as_index=False).tail(1)
+        elif comparison_mode == "Longest run per student":
+            control_df = control_df.sort_values(["student_id", "program_length", "time_num", "row_num"]).groupby("student_id", as_index=False).tail(1)
+        elif comparison_mode == "Latest run per student per session":
+            control_df = control_df.sort_values(["student_id", "session_number", "time_num", "row_num"]).groupby(
+                ["student_id", "session_number"], as_index=False
+            ).tail(1)
 
+    control_df["file_label"] = _short_submission_label(control_df["submission_key"].fillna("").astype(str))
     control_df["run_label"] = (
         control_df["student_id"].astype(str) + " | Session " +
+        "File " + control_df["file_label"].astype(str) + " | Session " +
         control_df["session_number"].fillna(1).astype(int).astype(str) + " | row " +
         control_df["source_row_number"].fillna(-1).astype(int).astype(str) + " | " +
-        control_df["Program"].replace("", "Empty")
+        control_df["run_type"].astype(str) + " | " + control_df["Program"].replace("", "Empty")
     )
     run_labels = control_df["run_label"].tolist()
     selected_run_labels = st.multiselect("Program Run selector", run_labels, default=run_labels)
@@ -294,6 +334,8 @@ else:
         final_points["final_coordinate"] = "(" + final_points["final_x"].astype(str) + ", " + final_points["final_y"].astype(str) + ")"
         selected_runs_df = selected_runs_df.merge(final_points[["run_label", "final_x", "final_y", "final_coordinate"]], on="run_label", how="left")
         selected_runs_df["program_commands_str"] = selected_runs_df["program_commands"].apply(lambda cmds: " ".join(cmds))
+        with st.expander("Debug: Selected Program Runs", expanded=False):
+            st.dataframe(selected_runs_df, use_container_width=True)
 
         st.subheader("Program Divergence Sankey")
         st.caption("Shows common step-to-step command paths and where selected runs diverge. Includes END nodes.")
@@ -328,6 +370,8 @@ else:
                 cols = ["student_id", "teacher_name", "class_section", "submission_key", "session_number", "source_row_number",
                         "run_type", "Time (seconds)", "Program", "program_commands", "program_length", "final_coordinate"]
                 st.dataframe(selected_runs_df[[c for c in cols if c in selected_runs_df.columns]], use_container_width=True)
+            with st.expander("Debug: Sankey Transitions", expanded=False):
+                st.dataframe(sankey_data["transitions_df"], use_container_width=True)
         else:
             st.info("No valid selected programs available to build Sankey.")
 
@@ -355,6 +399,8 @@ else:
             path_fig.add_annotation(x=max_abs * 0.7, y=-max_abs * 0.7, text="Quadrant IV", showarrow=False)
             path_fig.update_layout(height=560, legend_title_text="Program Runs")
             st.plotly_chart(path_fig, use_container_width=True)
+            with st.expander("Debug: Eagle-Eye Path Points", expanded=False):
+                st.dataframe(path_df, use_container_width=True)
 
             coord_options = sorted(final_points["final_coordinate"].dropna().unique().tolist())
             selected_coord = st.selectbox("Inspect final coordinate", coord_options)
@@ -375,11 +421,26 @@ else:
                 file_name="selected_program_runs.csv",
                 mime="text/csv",
             )
-            path_export = path_df.merge(final_points[["run_label", "final_coordinate"]], on="run_label", how="left").rename(columns={"step": "step_number"})
+            path_export = path_df.merge(final_points[["run_label", "final_x", "final_y", "final_coordinate"]], on="run_label", how="left").rename(columns={"step": "step_number"})
+            run_cols = ["run_label", "teacher_name", "class_section", "student_id", "session_date", "submission_key",
+                        "session_number", "source_row_number", "run_type", "Time (seconds)", "Program", "program_commands",
+                        "program_length", "final_x", "final_y", "final_coordinate"]
+            path_export = path_export.drop(columns=[c for c in run_cols if c in path_export.columns and c != "run_label"])
+            path_export = path_export.merge(selected_runs_df[run_cols], on="run_label", how="left")
+            path_export = ensure_columns(
+                path_export,
+                {
+                    "run_label": "", "teacher_name": "", "class_section": "", "student_id": "", "session_date": "",
+                    "submission_key": "", "session_number": "", "source_row_number": "", "run_type": "",
+                    "Time (seconds)": "", "Program": "", "program_commands": "", "program_length": 0,
+                    "step_number": 0, "command": "", "x": 0, "y": 0, "final_x": "", "final_y": "", "final_coordinate": "",
+                },
+            )
             st.download_button(
                 "Download eagle-eye path points CSV",
-                data=path_export[["run_label", "student_id", "submission_key", "session_number", "source_row_number",
-                                  "Program", "program_length", "step_number", "command", "x", "y", "final_coordinate"]].to_csv(index=False),
+                data=path_export[["run_label", "teacher_name", "class_section", "student_id", "session_date", "submission_key",
+                                  "session_number", "source_row_number", "run_type", "Time (seconds)", "Program", "program_commands",
+                                  "program_length", "step_number", "command", "x", "y", "final_x", "final_y", "final_coordinate"]].to_csv(index=False),
                 file_name="eagle_eye_path_points.csv",
                 mime="text/csv",
             )

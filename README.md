@@ -89,6 +89,11 @@ Additional analytics shown in Streamlit:
 
 ### Program Visualization Controls
 
+- Data model:
+  - One uploaded file (`submission_key`) can contain multiple robot sessions.
+  - A session starts when `Session == "NEW"`.
+  - Each Play/Test row is one **Program Run**.
+  - `Program` is the command sequence for that single Program Run.
 - A dedicated control section above Sankey and Eagle-Eye lets you choose exactly which runs are visualized.
 - Controls include:
   - Run Type multiselect (`Play`, `Test`)
@@ -102,6 +107,7 @@ Additional analytics shown in Streamlit:
 ### Program Divergence Sankey
 
 - Uses the `Program` column as a whitespace-separated command list.
+- Compares selected Program Runs (Play/Test rows), not whole files or whole sessions.
 - Includes only rows where:
   - Button-derived run type is `Play` or `Test`.
   - Program is non-empty and not `Empty`.
@@ -117,6 +123,7 @@ Additional analytics shown in Streamlit:
 ### Eagle-Eye Program Path Map
 
 - Simulates intended movement from each valid Play/Test `Program`.
+- Draws one line per selected Program Run.
 - Each run starts at `(0, 0)` with heading East.
 - Movement assumptions:
   - `forward` = move one unit in current heading
