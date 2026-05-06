@@ -1,9 +1,15 @@
 import json
 
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
-from analytics_utils import add_robot_analytics_fields
+from analytics_utils import (
+    add_robot_analytics_fields,
+    build_path_map_data,
+    build_sankey_data,
+)
 from db_utils import init_db, read_session_rows, read_submissions
 from sync_google_form import sync_new_responses
 
@@ -223,6 +229,66 @@ if not analytics_df.empty and "Button" in analytics_df.columns:
         st.bar_chart(button_counts.set_index("Button")[['count']])
     else:
         st.info("No button press data found for current filters.")
+
+st.subheader("Program Divergence Sankey")
+st.caption("Shows common command paths across Play/Test program runs and where student approaches diverge.")
+sankey_data = build_sankey_data(analytics_df)
+if sankey_data:
+    sankey_fig = go.Figure(
+        data=[
+            go.Sankey(
+                node=dict(label=sankey_data["labels"], pad=15, thickness=16),
+                link=dict(
+                    source=sankey_data["source"],
+                    target=sankey_data["target"],
+                    value=sankey_data["value"],
+                ),
+            )
+        ]
+    )
+    sankey_fig.update_layout(height=500, margin=dict(l=20, r=20, t=40, b=20))
+    st.plotly_chart(sankey_fig, use_container_width=True)
+else:
+    st.info("No valid Play/Test programs found for current filters to build a Sankey plot.")
+
+st.subheader("Eagle-Eye Program Path Map")
+st.caption(
+    "Simulated intended path from Program commands (not measured robot trajectory). "
+    "Assumptions: start at (0,0), heading East; left/right rotate 90°; forward/reverse move one unit."
+)
+path_df = build_path_map_data(analytics_df)
+if not path_df.empty:
+    path_fig = px.line(
+        path_df.sort_values(["run_label", "step"]),
+        x="x",
+        y="y",
+        color="run_label",
+        line_group="run_label",
+        hover_data=["student_id", "submission_key", "step", "command", "heading"],
+        markers=True,
+    )
+    path_fig.update_layout(height=520, legend_title_text="Student/Run", xaxis_title="X", yaxis_title="Y")
+    path_fig.update_yaxes(scaleanchor="x", scaleratio=1)
+    st.plotly_chart(path_fig, use_container_width=True)
+
+    final_points = (
+        path_df.sort_values(["run_label", "step"])
+        .groupby("run_label", as_index=False)
+        .tail(1)[["run_label", "student_id", "submission_key", "x", "y", "step"]]
+        .rename(columns={"step": "total_steps"})
+        .reset_index(drop=True)
+    )
+    final_points["final_coordinate"] = "(" + final_points["x"].astype(str) + ", " + final_points["y"].astype(str) + ")"
+    coord_options = sorted(final_points["final_coordinate"].unique().tolist())
+    selected_coord = st.selectbox("Inspect final coordinate", coord_options)
+    st.dataframe(
+        final_points[final_points["final_coordinate"] == selected_coord]
+        .sort_values(["student_id", "run_label"])
+        .reset_index(drop=True),
+        use_container_width=True,
+    )
+else:
+    st.info("No valid Play/Test programs found for current filters to simulate paths.")
 
 st.subheader("Empty Program Runs")
 if not analytics_df.empty and {"run_type", "program_length", "session_number"}.issubset(analytics_df.columns):
